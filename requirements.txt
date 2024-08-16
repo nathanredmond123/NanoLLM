@@ -4,6 +4,7 @@ torch
 torchvision
 torchaudio
 transformers>=4.37.0
+sentence-transformers
 
 # text utils
 decorator-args

@@ -41,7 +41,7 @@ class NanoLLM():
     
         Args:
           model (str): either the path to the model, or HuggingFace model repo/name.
-          api (str): the model backend API to use:  'auto_gptq', 'awq', 'mlc', or 'hf'
+          api (str): the model backend API to use:  'auto_gptq', 'awq', 'mlc', 'hf', or 'st'
                        if left as None, it will attempt to be automatically determined.
 
           quantization (str): for AWQ or MLC, either specify the quantization method,
@@ -50,6 +50,12 @@ class NanoLLM():
           vision_model (str): for VLMs, override the vision embedding model 
                               (typically `openai/clip-vit-large-patch14-336 <https://huggingface.co/openai/clip-vit-large-patch14-336>`_).
                               Otherwise, it will use the CLIP variant from the config.
+          
+          st_type (str): for Sentence Transformers, the model type: 'bi-encoder' or 'cross-encoder'
+
+          model_kwargs, tokenizer_kwargs, config_kwargs: for Sentence Transformers, additional kwargs dictionares for the model, tokenizer,
+                              and config. See `SentenceTransformer <https://www.sbert.net/docs/package_reference/sentence_transformer/SentenceTransformer.html#id1>`_.
+                              and `CrossEncoder <https://www.sbert.net/docs/package_reference/cross_encoder/cross_encoder.html#id1>`.
                                 
         Returns:
           A loaded `NanoLLM` model instance using the determined API.
@@ -92,6 +98,9 @@ class NanoLLM():
         elif api == 'hf':
             from nano_llm.models import HFModel
             model = HFModel(model_path, **kwargs)
+        elif api == 'st':
+            from nano_llm.models import STModel
+            model = STModel(model_path, **kwargs)
         else:
             raise ValueError(f"invalid API: {api}")
 
@@ -295,11 +304,16 @@ class NanoLLM():
         self.config = AttributeDict()
         
         #: The local path to the model config file (``config.json``)
-        self.config_path = os.path.join(model_path, 'config.json')
+        #: Sometimes the config.json is one directory deeper than the model checkpoint, like for
+        #: Sentence Transformers CLIP models.
+        for root, _, files in os.walk(model_path):
+            if 'config.json' in files:
+                self.config_path = os.path.join(root, 'config.json')
+                self.model_path = root #: The local path to the model checkpoint/weights in HuggingFace format.
+                print(f"config_path: {self.config_path}")
+                print(f"model_path: {self.model_path}")
+                break
         
-        #: The local path to the model checkpoint/weights in HuggingFace format.
-        self.model_path = model_path
-
         # load the config file
         if os.path.isfile(self.config_path):
             with open(self.config_path) as config_file:
@@ -311,9 +325,9 @@ class NanoLLM():
         self.config.name = kwargs.get('name')
         self.config.api = kwargs.get('api')
         
-        if 'max_position_embeddings' not in self.config:
+        if 'max_position_embeddings' not in self.config and self.config.api != 'st':
             self.config.max_position_embeddings = self.config.get('llm_max_length', 4096)
-            
+                    
         #: Dict containing the latest generation performance statistics.
         self.stats = AttributeDict()
         
@@ -332,7 +346,7 @@ class NanoLLM():
         # token and embedding caches
         self.embed_cache = {}
         
-        # create the tokenizer        
+        # create the tokenizer
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_path, use_fast=True, trust_remote_code=True)
         except:
@@ -481,8 +495,6 @@ class NanoLLM():
         if not self.has_vision:
             return
 
-        use_tensorrt = bool(vision_api == 'auto' or vision_api == 'trt' or vision_api == 'tensorrt')
-        
         if self.is_type('openvla'):
             from nano_llm.vision.vla import VLAModel
             
@@ -497,11 +509,7 @@ class NanoLLM():
                     hidden_state=-2,
                     num_classes=0,
                     dtype=torch.float16,
-                    use_tensorrt=use_tensorrt, 
-                    transform=dict(
-                        crop_pct=1.0, # disable
-                        crop_mode='center',
-                    ),
+                    use_tensorrt=(vision_api == 'auto' or vision_api == 'trt'), 
                 )
                 for i, timm_model_id in enumerate(self.config.timm_model_ids)
             ]
@@ -527,7 +535,7 @@ class NanoLLM():
                 CLIPVisionModel.from_pretrained(
                     vision_model if vision_model else self.config.mm_vision_tower,
                     crop=(kwargs.get('vision_scaling', 'resize') == 'crop'),
-                    use_tensorrt=(vision_api == 'auto' or vision_api == 'trt' or vision_api == 'tensorrt'), 
+                    use_tensorrt=(vision_api == 'auto' or vision_api == 'trt'), 
                     dtype=torch.float16)
             ]
             

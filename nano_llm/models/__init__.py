@@ -5,3 +5,4 @@
 from .hf import HFModel
 from .awq import AWQModel
 from .mlc import MLCModel
+from .st import STModel

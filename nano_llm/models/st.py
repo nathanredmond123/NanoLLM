@@ -52,6 +52,8 @@ class STModel(NanoLLM):
             self.st_type = st_type
             del kwargs['st_type']
 
+        torch_dtype = model_kwargs.get('torch_dtype', torch.float16)
+
         if not load:
             return
         
@@ -63,7 +65,7 @@ class STModel(NanoLLM):
                                                      model_kwargs=model_kwargs, 
                                                      tokenizer_kwargs=tokenizer_kwargs, 
                                                      config_kwargs=config_kwargs,
-                                                     ).to(self.device).eval()
+                                                     ).to(torch_dtype).to(self.device).eval() # model_kwargs['torch_dtype'] not being passed to CLIP models.
                     self.has_embed = True
                 else:
                     from sentence_transformers import CrossEncoder
@@ -71,7 +73,7 @@ class STModel(NanoLLM):
                                                      model_kwargs=model_kwargs, 
                                                      tokenizer_kwargs=tokenizer_kwargs, 
                                                      config_kwargs=config_kwargs,
-                                                     ).to(self.device).eval()
+                                                     ).to(torch_dtype).to(self.device).eval()
                     self.has_embed = False
         else:
             if self.st_type == 'bi-encoder':
@@ -80,7 +82,7 @@ class STModel(NanoLLM):
                                                      model_kwargs=model_kwargs, 
                                                      tokenizer_kwargs=tokenizer_kwargs, 
                                                      config_kwargs=config_kwargs,
-                                                     ).to(self.device).eval()
+                                                     ).to(torch_dtype).to(self.device).eval()
                 self.has_embed = True
                 
             else:
@@ -89,7 +91,7 @@ class STModel(NanoLLM):
                                                      model_kwargs=model_kwargs, 
                                                      tokenizer_kwargs=tokenizer_kwargs, 
                                                      config_kwargs=config_kwargs,
-                                                     ).to(self.device).eval()
+                                                     ).to(torch_dtype).to(self.device).eval()
                 self.has_embed = False
 
         self.config.torch_dtype = next(self.model.parameters()).dtype

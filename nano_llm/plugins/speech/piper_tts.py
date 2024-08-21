@@ -9,7 +9,7 @@ import torch
 import torchaudio
 
 from .auto_tts import AutoTTS
-from nano_llm.utils import convert_tensor, convert_audio, resample_audio
+from nano_llm.utils import convert_tensor, convert_audio, resample_audio, update_default
 
 from piper import PiperVoice
 from piper.download import ensure_voice_exists, find_voice, get_voices

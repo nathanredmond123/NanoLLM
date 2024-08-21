@@ -96,7 +96,7 @@ class RobomimicDataset:
         """
         def generator(episode_key):
             episode = self.data[episode_key]
-            actions = self.remap(actions=np.array(episode['actions']))
+            actions = self.remap(actions=episode['actions'][()])
             samples = int(episode.attrs['num_samples'])
             images = {}
             
@@ -105,32 +105,20 @@ class RobomimicDataset:
                     obs_key = obs_key.replace('_image', '').replace('robot0_', '')
                     obs_key = self.remap_keys.get(obs_key, obs_key)
                     if obs_key:
-                        images[obs_key] = self.resize_images(obs[()])
-             
-            if 'instructions' in episode:
-                instructions = episode['instructions']
-            else:
-                instructions = self.get_instruction(self.config.env_name)  
-                 
+                        images[obs_key] = self.resize_image(obs[()])
+                        
             for i in range(samples):
                 self.new_steps += 1
-                
                 stop = bool(self.max_steps and self.new_steps >= self.max_steps)
-                step = AttributeDict(
+  
+                yield(AttributeDict(
                     #state = episode['states'][i], # MuJoCo states
                     action = actions[i],
                     images = {key : image[i] for key, image in images.items()},
+                    instruction = self.get_instruction(self.config.env_name),
                     is_first = bool(i == 0),
                     is_last = bool(i == samples-1) or stop,
-                )
-
-                if instructions:
-                    if isinstance(instructions, str):
-                        step.instruction = instructions
-                    else:
-                        step.instruction = instructions[i].decode("utf-8")
-
-                yield(step)
+                ))
 
                 if stop:
                     return
@@ -138,24 +126,22 @@ class RobomimicDataset:
         for episode_idx, episode_key in enumerate(self.data):
             if self.max_episodes and episode_idx >= self.max_episodes:
                 return
-            if self.max_steps and self.new_steps >= self.max_steps:
-                return
             yield(generator(episode_key))
-               
+                
     def get_instruction(self, task):
         task = task.lower()
         if 'stack_three' in task:
             return "stack the red block on top of the green block, and then the blue block on top of the red block."
         elif 'stack' in task:
             return "stack the red block on top of the green block"
-    
+     
     def compute_stats(self):
         logging.debug(f"Robomimic | calculating dataset statistics ({self.num_episodes} episodes, {self.num_steps} steps)")
         
         actions = []
         
         for episode_key, episode in self.data.items():
-            actions.append(self.remap(actions=np.array(episode['actions'])))
+            actions.append(self.remap(actions=episode['actions']))
             
         actions = np.concatenate(actions, axis=0)
       
@@ -178,21 +164,15 @@ class RobomimicDataset:
             q99 = np.quantile(actions, 0.99, axis=0).tolist()
         )
     
-    def resize_images(self, images):
-        img_width = images.shape[-2]
-        img_height = images.shape[-3]
+    def resize_image(self, image):
+        img_width = image.shape[-2]
+        img_height = image.shape[-3]
         
-        if self.width is None:
-            self.width = img_width
-            
-        if self.height is None:
-            self.height = img_height
-            
         if self.width == img_width and self.height == img_height:
             return images
 
         return torchvision.transforms.functional.resize(
-            convert_tensor(images, return_tensors='pt', device='cuda').permute(0,3,1,2),
+            convert_tensor(image, return_tensors='pt', device='cuda').permute(0,3,1,2),
             (self.height, self.width)  # default is bilinear
         ).permute(0,2,3,1)
 
@@ -205,29 +185,19 @@ class RobomimicDataset:
             elif gripper_states is not None:
                 return gripper_states
                 
-        if gripper is not None:  # invert from [-1,1] to [0,1]
+        if gripper is not None:
             return 1.0 - ((gripper + 1.0) * 0.5) #(gripper + 1.0) * 0.5 #
          
         if action is not None:
-            action[-1] = self.remap(gripper=action[-1])
-            return action
-            
-            '''
             return np.concatenate([
                 action[:6], self.remap(gripper=action[-1])[None]
             ], axis=0) 
-            '''
-            
+                 
         if actions is not None:
-            for s in range(actions.shape[0]):
-                actions[s,-1] = self.remap(gripper=actions[s,-1])
-            return actions   
-            '''
             return np.concatenate([
                 actions[:, :6],
                 self.remap(gripper=actions[:,-1])[:, None]
             ], axis=1)
-            '''
                           
     def dump(self, max_steps=1):
         #import imageio

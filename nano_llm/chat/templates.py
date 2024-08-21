@@ -191,6 +191,8 @@ def ChatTemplate(model):
             chat_template = 'llava-llama-2'
         else:
             chat_template = 'llama-2'
+    elif 'llama-3.1' in model:
+        chat_template = 'llama-3.1'
     elif 'llama-3' in model:
         chat_template = 'llama-3'
     elif 'vicuna' in model:

@@ -2,6 +2,8 @@
 import re
 import json
 import logging
+import os
+from importlib import import_module
 
 import functools
 import traceback
@@ -129,12 +131,12 @@ class BotFunctions:
                 return function
     
     @classmethod
-    def generate_docs(cls, prologue=True, epilogue=True, spec='python', functions=None):
+    def generate_docs(cls, prologue=True, epilogue=True, spec='python', load=True, functions=None):
         """
         Collate the documentation strings from all the enabled functions
         """
         if functions is None:
-            functions = BotFunctions()
+            functions = BotFunctions(load=load)
             
         if not isinstance(prologue, str):
             if prologue is None or prologue == False:
@@ -298,13 +300,12 @@ class BotFunctions:
         if cls.builtins:
             return True
             
-        # TODO: automate this
-        from . import alert
-        from . import clock
-        from . import location
-        #from . import weather
-        #from . import home_assistant
-        
+        for file in os.listdir(os.path.dirname(__file__)):
+            if file.startswith('_') or not file.endswith('.py'):
+                continue
+            import_module(f".{file[:-3]}", package='nano_llm.plugins.bot_functions')
+            print(f"Loaded built-in bot function module {file}")
+
         assert(cls.functions)
         cls.builtins = True
         
@@ -312,7 +313,7 @@ class BotFunctions:
             cls.test()
             
         return cls.functions
-       
+        
     @classmethod
     def test(cls, disable_on_error=True):
         """

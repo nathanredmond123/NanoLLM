@@ -83,8 +83,6 @@ def default_model_api(model_path, quant_path=None):
         return 'awq'
     elif 'mlc' in model_path:
         return 'mlc'
-    elif 'sentence-transformers' in model_path or 'cross-encoder' in model_path:
-        return 'st'
     else:
         return 'mlc' #'hf'
         

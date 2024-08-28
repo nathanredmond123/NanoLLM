@@ -65,7 +65,7 @@ class STModel(NanoLLM):
                                                      model_kwargs=model_kwargs, 
                                                      tokenizer_kwargs=tokenizer_kwargs, 
                                                      config_kwargs=config_kwargs,
-                                                     ).to(torch_dtype).to(self.device).eval() # model_kwargs['torch_dtype'] not being passed to CLIP models.
+                                                     ).to(torch_dtype) # model_kwargs['torch_dtype'] not being passed to CLIP models.
                     self.has_embed = True
                 else:
                     from sentence_transformers import CrossEncoder
@@ -73,7 +73,7 @@ class STModel(NanoLLM):
                                                      model_kwargs=model_kwargs, 
                                                      tokenizer_kwargs=tokenizer_kwargs, 
                                                      config_kwargs=config_kwargs,
-                                                     ).to(torch_dtype).to(self.device).eval()
+                                                     ).to(torch_dtype)
                     self.has_embed = False
         else:
             if self.st_type == 'bi-encoder':

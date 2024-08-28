@@ -13,6 +13,8 @@ function addGrid() {
   grid = GridStack.init({'column': 12, 'cellHeight': 50, 'float': true});
 
   grid.on('added', function(event, items) {
+    if( items === undefined )
+      return;
     items.forEach((item) => {
       console.log(`grid widget ${item.id} was added`, item);
       sendWebsocket({
@@ -24,6 +26,8 @@ function addGrid() {
   });
   
   grid.on('change', function(event, items) {
+    if( items === undefined )
+      return;
     items.forEach((item) => {
       console.log(`grid widget ${item.id} changed position/size`, item);
       sendWebsocket({
@@ -35,6 +39,8 @@ function addGrid() {
   });
   
   grid.on('removed', function(event, items) {
+    if( items === undefined )
+      return;
     items.forEach((item) => {
       console.log(`grid widget ${item.id} has been removed`, item);
       sendWebsocket({
@@ -455,6 +461,50 @@ function addVideoOutputWidget(name, id, title, grid_options) {
   return widget;
 }
 
+function addSimWidget(name, id, title, grid_options) {
+  const sim_id = `${id}_sim_controller`;
+  const reset_id = `${id}_sim_reset`;
+  const reset_stats_id = `${id}_sim_reset_stats`;
+  const pause_id = `${id}_sim_pause`;
+  
+  const html = `
+    <p class="d-inline-flex gap-1">
+      <button type="button" class="btn btn-primary" id="${reset_id}">Reset Episode</button>
+      <button type="button" class="btn btn-primary" id="${reset_stats_id}">Reset Stats</button>
+      <button type="button" class="btn btn-primary" data-bs-toggle="button" id="${pause_id}">Pause</button>
+    </p>
+  `;
+  
+  let widget = addGridWidget(id, title, html, null, Object.assign({w: 4, h: 2}, grid_options));
+  
+  let reset = document.getElementById(reset_id);
+  let reset_stats = document.getElementById(reset_stats_id);
+  let pause = document.getElementById(pause_id);
+  
+  reset.addEventListener('click', function(e) {
+      msg = {};
+      msg[name] = {'reset': true};
+      console.log(`resetting sim episode ${msg}`);
+      sendWebsocket(msg); 
+  });
+  
+  reset_stats.addEventListener('click', function(e) {
+      msg = {};
+      msg[name] = {'reset_stats': true};
+      console.log(`resetting sim stats ${msg}`);
+      sendWebsocket(msg); 
+  });
+  
+  pause.addEventListener('click', function(e) {
+      msg = {};
+      msg[name] = {'pause': pause.classList.contains('active')};
+      sendWebsocket(msg); 
+  });
+  
+  return widget; 
+}
+
+
 function addOutputListener(name, channel, listener) {
   if( ! (name in outputListeners) ) {
     outputListeners[name] = [listener];
@@ -485,13 +535,7 @@ function addStateListener(name, listener) {
 function setStateDict(state_dicts) {
   for( plugin_name in state_dicts ) {
     const state_dict = state_dicts[plugin_name];
-    for( state_name in state_dict ) {
-      const id = document.getElementById(`${plugin_name}_config_${state_name}`);
-      if( id != null ) {
-        id.value = state_dict[state_name];
-      }
-    }
-    
+
     if( plugin_name in stateListeners )
       stateListeners[plugin_name].forEach((listener) => {listener(state_dict);});
 
@@ -555,6 +599,39 @@ function addPlugin(plugin) {
     }
   }
   
+  let control_html = '';
+  let has_state_listener = false;
+  
+  for( param_name in plugin['parameters'] ) {
+    const param = plugin['parameters'][param_name];
+    
+    if( 'controls' in param && param['controls'].indexOf('node') < 0 )
+        continue;
+        
+    if( 'options' in param ) {
+      control_html += `<select id="${plugin_name}_node_control_${param_name}" style="background: rgb(150,150,150);">\n`
+      
+      for( k in param['options'] ) {
+        const option = param['options'][k];
+        
+        if( option == param['default'] )
+          var selected = ` selected="selected"`;
+        else
+          var selected = '';
+        
+        control_html += `  <option${selected} value="${option}">${option}</option>\n`
+      }
+      
+      control_html += `</select>\n`;
+    }
+  }
+
+  if( control_html.length > 0 ) {
+    control_html = `<p id="${plugin_name}_node_controls" class="mt-2" style="font-family: monospace, monospace; font-size: 80%">${control_html}</p>\n`;
+    has_state_listener = true;
+    console.debug(`${plugin_name} node control:  ${control_html}`);
+  }
+  
   let stats_class = '';
   
   if( plugin['outputs'].length > 1 )
@@ -563,6 +640,7 @@ function addPlugin(plugin) {
   const html = `
     <div style="position: absolute; top: 5px;">
       ${truncate(plugin_title, 14)}
+      ${control_html}
       <p id="${plugin_name}_node_stats" class="${stats_class}" style="font-family: monospace, monospace; font-size: 80%"></p>
     </div>
   `;
@@ -571,27 +649,70 @@ function addPlugin(plugin) {
   nodeIdToName[node_id] = plugin_name;
   console.log(`added node id=${node_id} for {plugin_name}`);
   
-  let style = '';
-  let max_output_chars = 0;
+  var show_channel_names = (plugin['type'] != 'Mux');
+
+  if( show_channel_names ) {
+    let style = '';
+    let max_output_chars = 0;
+    
+    for( i in plugin['outputs'] ) {
+      const output = plugin['outputs'][i].toString();
+      max_output_chars = Math.max(max_output_chars, output.length);
+      style += `.${plugin_name} .outputs .output:nth-child(${Number(i)+1}):before {`;
+      style += `display: block; content: "${output}"; position: relative; min-width: 160px; font-size: 80%; bottom: 2px; right: ${(output.length-1) * 6 + 20}px;} `;
+    }
+      
+    style += `.outputs { margin-top: 20px; font-family: monospace, monospace; } `;
+    
+    var style_el = document.createElement('style');
+    style_el.id = `${plugin_name}_node_io_styles`;
+    style_el.innerHTML = style;
+    document.head.appendChild(style_el);
+  }
   
-  for( i in plugin['outputs'] ) {
-    const output = plugin['outputs'][i].toString();
-    max_output_chars = Math.max(max_output_chars, output.length);
-    style += `.${plugin_name} .outputs .output:nth-child(${Number(i)+1}):before {`;
-    style += `display: block; content: "${output}"; position: relative; min-width: 160px; font-size: 80%; bottom: 2px; right: ${(output.length-1) * 6 + 20}px;} `;
+  for( k in plugin['parameters'] ) {
+    const param_name = k;
+    const param = plugin['parameters'][param_name];
+
+    if( 'controls' in param && param['controls'].indexOf('node') < 0 )
+        continue;
+        
+    if( !('options' in param) )
+        continue;
+    
+    let control = document.getElementById(`${plugin_name}_node_control_${param_name}`);
+    
+    control.addEventListener('change', (event) => {
+      console.log(`setting ${plugin_name}.${param_name} = ${control.value}`, event);
+      msg = {};
+      msg[param_name] = control.value;
+      msg2 = {};
+      msg2[plugin_name] = msg;
+      sendWebsocket(msg2);
+    });   
+  }
+  
+  
+  if( has_state_listener ) {
+    addStateListener(plugin_name, function(state_dict) {
+      for( state_name in state_dict ) {
+        if( state_name == 'parameters' ) {
+          updatePluginNodeControls(plugin_name, state_dict['parameters']);
+        }
+      }
+    });
   }
     
-  style += `.outputs { margin-top: 20px; font-family: monospace, monospace; } `;
+  let has_config_dialog = false;
   
-  var style_el = document.createElement('style');
-  style_el.id = `${plugin_name}_node_io_styles`;
-  style_el.innerHTML = style;
-  document.head.appendChild(style_el);
-
-  const has_config_dialog = (Object.keys(plugin['parameters']).length > 0);
+  for( i in plugin['parameters'] ) {
+    if( plugin['parameters'][i]['controls'].indexOf('dialog') >= 0 ) {
+        has_config_dialog = true;
+        break;
+    }
+  }
   
   $(`.${plugin_name}`).on('dblclick', function () {
-    //console.log(`double-click ${plugin_name}`);
     if( addPluginGridWidget(plugin_name, plugin['type'], plugin_title) == null ) {
       if( has_config_dialog ) {
         sendWebsocket({'get_state_dict': plugin_name});
@@ -603,11 +724,26 @@ function addPlugin(plugin) {
   
   if( has_config_dialog )
     addPluginDialog(plugin_name, 'config', plugin_title, null, plugin['parameters']);
-    
-  if( Object.keys(layout_grid).length > 0 ) {
+
+  if( Object.keys(layout_grid).length > 0 )
     addPluginGridWidget(plugin_name, plugin['type'], plugin_title, layout_grid);
+}
+
+function updatePluginNodeControls(plugin_name, parameters) {
+  for( param_name in parameters ) {
+    const param = parameters[param_name];
+    const id = `#${plugin_name}_node_control_${param_name}`;
+    
+    if( 'options' in param ) {
+      $(id).find('option').remove();
+      for( let k=0; k < param['options'].length; k++ ) {
+        const option = param['options'][k];
+        $(id).append(new Option(option, option));
+      }
+    }
   }
 }
+
 
 function addPluginGridWidget(name, type, title, grid_options) {
   const id = `${name}_grid`;
@@ -632,6 +768,8 @@ function addPluginGridWidget(name, type, title, grid_options) {
       return addVideoOutputWidget(name, id, title, grid_options);
     case 'NanoDB':
       return addNanoDBWidget(name, id, title, grid_options);
+    case 'MimicGen':
+      return addSimWidget(name, id, title, grid_options);
     case 'TerminalPlugin':
       return addTerminalWidget(name, id, title, grid_options);
     case 'GraphEditor':
@@ -898,7 +1036,7 @@ function addGraphEditor(name, id, grid_options) {
     menuSelector: "#plugin_context_menu",
     menuSelected: function (invokedOn, selectedMenu) {
         //var msg = "You selected the menu item '" + selectedMenu.text() + "' on the value '" + invokedOn.text() + "'";
-        console.log('selected context menu', selectedMenu, msg);
+        console.log('selected context menu', selectedMenu);
     }
   });
 
@@ -1055,9 +1193,9 @@ function addPluginDialog(plugin_name, stage, title, description, parameters, max
     const param = parameters[param_name];
     const id = `${plugin_name}_${stage}_${param_name}`;
     
-    if( param['hidden'] )
-      continue;
-    
+    if( 'controls' in param && param['controls'].indexOf('dialog') < 0 )
+        continue;
+
     if( param_count > 0 && param_count % Math.ceil(num_params / num_columns) == 0 )
       html += `</div><div class="col-sm">`;
       
@@ -1155,11 +1293,12 @@ function addPluginDialog(plugin_name, stage, title, description, parameters, max
     let args = {};
     
     for( param_name in parameters ) {
-      if( parameters[param_name]['hidden'] )
+      const param = parameters[param_name];
+      if( 'controls' in param && param['controls'].indexOf('dialog') < 0 )
         continue;
       let value = document.getElementById(`${plugin_name}_${stage}_${param_name}`).value;
       if( value != undefined && value.length > 0 ) { // input.value are always strings
-        const type = parameters[param_name]['type'];
+        const type = param['type'];
         if( type == 'integer' || type == 'number' )
           value = Number(value);
         args[param_name] = value;
@@ -1193,7 +1332,45 @@ function addPluginDialog(plugin_name, stage, title, description, parameters, max
     $(`#${select2_id}`).select2(select2_args[select2_id]);
   }
   
+  if( stage == 'config' ) {
+    addStateListener(plugin_name, function(state_dict) {
+      for( state_name in state_dict ) {
+        if( state_name == 'parameters' ) {
+          updatePluginDialogControls(plugin_name, 'config', state_dict['parameters']);
+        }
+        else {
+          const id = document.getElementById(`${plugin_name}_config_${state_name}`);
+          if( id != null ) {
+            console.debug(`updating value from server:  ${plugin_name}.${state_name} => ${state_dict[state_name]}`);
+            id.value = state_dict[state_name];
+          }
+        }
+      }
+    });
+  }
+    
   return dialog_id;
+}
+
+function updatePluginDialogControls(plugin_name, stage, parameters) {
+  for( param_name in parameters ) {
+    const param = parameters[param_name];
+    const id = `#${plugin_name}_${stage}_${param_name}`;
+    
+    if( 'options' in param ) {
+      $(id).find('option').remove();
+      for( let k=0; k < param['options'].length; k++ ) {
+        const option = param['options'][k];
+        // https://select2.org/programmatic-control/add-select-clear-items#create-if-not-exists
+        $(id).append(new Option(option, option));
+        /*if( $(id).find("option[value='" + option + "']").length == 0 ) {
+            console.log(`${id} adding option ${option}`);
+            let newOption = new Option(option, option);
+            $(id).append(newOption); //.trigger('change');
+        }*/
+      }
+    }
+  }
 }
 
 function fitGridWidgetContents(el) {

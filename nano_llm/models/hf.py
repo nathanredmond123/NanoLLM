@@ -7,7 +7,7 @@ import threading
 import torch
 import numpy as np
 
-from transformers import AutoModelForCausalLM, AutoTokenizer, StoppingCriteria
+from transformers import AutoModelForCausalLM, AutoTokenizer, StoppingCriteria, Blip2Processor, Blip2ForConditionalGeneration
 from transformers.generation.streamers import BaseStreamer
 
 from accelerate import init_empty_weights as init_empty_weights_ctx
@@ -25,8 +25,7 @@ class HFModel(NanoLLM):
         Load model from path on disk or HuggingFace repo name.
         """
         super(HFModel, self).__init__(model_path, **kwargs)
-    
-        self.model_path = model_path
+
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         self.queue = queue.Queue()
         self.thread = threading.Thread(target=self._run, daemon=True).start()  
@@ -35,16 +34,32 @@ class HFModel(NanoLLM):
             return
 
         if init_empty_weights:
-            with init_empty_weights_ctx():
-                self.model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.float16)
+            if 'blip' in self.model_path:
+                self.blip = True
+                with init_empty_weights_ctx():
+                    self.model = Blip2ForConditionalGeneration.from_pretrained(self.model_path, 
+                        device_map="auto"
+                    )
+                    self.processor = Blip2Processor.from_pretrained(self.model_path)
+            else:
+                with init_empty_weights_ctx():
+                    self.model = AutoModelForCausalLM.from_pretrained(self.model_path, 
+                        torch_dtype=torch.float16, trust_remote_code=True
+                    )    
         else:
+            if 'blip' in self.model_path:
+                self.blip = True
+                self.model = Blip2ForConditionalGeneration.from_pretrained(self.model_path, 
+                    device_map="auto"
+                )
+                self.processor = Blip2Processor.from_pretrained(self.model_path)
             if 'gtpq' in self.model_path:
-                self.model = AutoModelForCausalLM.from_pretrained(model_path, device=self.device, 
-                    torch_dtype=torch.float16, low_cpu_mem_usage=True
+                self.model = AutoModelForCausalLM.from_pretrained(self.model_path, device=self.device, 
+                    torch_dtype=torch.float16, low_cpu_mem_usage=True, trust_remote_code=True,
                 ).eval()
             else:
-                self.model = AutoModelForCausalLM.from_pretrained(model_path,
-                    torch_dtype=torch.float16, low_cpu_mem_usage=True
+                self.model = AutoModelForCausalLM.from_pretrained(self.model_path,
+                    torch_dtype=torch.float16, low_cpu_mem_usage=True, trust_remote_code=True,
                 ).to(self.device).eval()
         
         try:
@@ -55,7 +70,7 @@ class HFModel(NanoLLM):
         if not self.has_embed:
             logging.warning(f"{type(self)} model {self.config.name} did not have text embedding layer (disabling input_embeds)")
                 
-        self.has_embed = False # TODO monkey-patching for this    
+        self.has_embed = callable(getattr(self.model, 'get_input_embeddings'))
         self.load_config()
  
     def load_config(self):
@@ -194,12 +209,22 @@ class HFModel(NanoLLM):
         # begin generation
         self.time_begin_prefill = time.perf_counter()
         
-        output = self.model.generate(
-            streamer=stream,
-            return_dict_in_generate=True,
-            use_cache=True,
-            **generate_kwargs
-        )
+        if self.blip:
+            caption_prompt = stream.kwargs.get('caption_prompt', 'a photograph of')
+            model_inputs = self.processor(inputs, caption_prompt, return_tensors='pt').to(self.device)
+            model_output = self.model.generate(
+                **model_inputs,
+                **generate_kwargs
+            )
+            output = self.processor.decode(model_output[0], skip_special_tokens=True)
+
+        else:
+            output = self.model.generate(
+                streamer=stream,
+                return_dict_in_generate=True,
+                use_cache=True,
+                **generate_kwargs
+            )
 
         self.stats.decode_time = time.perf_counter() - self.time_begin_decode
         self.stats.decode_rate = (self.stats.output_tokens-1) / self.stats.decode_time # subtract one because timing didn't start until after the first token
@@ -269,10 +294,15 @@ class KVCacheHF(KVCache):
     def update(self, state):
         self.state = state
         
-        if self.state is not None:
+        if self.state is None:
+            return
+            
+        if isinstance(self.state, (tuple, list)):
             # TODO this is one shorter than the input+output token lengths...
+            self.state[0][0].shape[2] 
+        else:
             # https://huggingface.co/docs/transformers/en/main_classes/output#transformers.modeling_outputs.BaseModelOutputWithPast.past_key_values
-            self.num_tokens = self.state.get_seq_length() #self.state[0][0].shape[2] 
+            self.num_tokens = self.state.get_seq_length()
             
             
 class StopTokensCriteria(StoppingCriteria):

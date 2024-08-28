@@ -11,7 +11,7 @@ class Location(Plugin):
         super().__init__(outputs=None, threaded=False, **kwargs)
         self.add_tool(self.geolocation)
         
-    def geolocation() -> str:
+    def geolocation(self) -> str:
         """
         Returns the current location, like the name of the city.
         This function takes no arguments.

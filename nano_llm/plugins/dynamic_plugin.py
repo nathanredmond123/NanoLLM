@@ -86,9 +86,9 @@ class DynamicPlugin(Plugin):
         from nano_llm.plugins import (
             NanoLLM, NanoVLA, VideoSource, VideoOutput,
             UserPrompt, AutoPrompt, VADFilter,
-            TextStream, VideoOverlay, RateLimit,
+            TextStream, TextOverlay, RateLimit,
             AudioInputDevice, AudioOutputDevice, AudioRecorder, 
-            NanoDB, Deduplicate, DataTable, DataLogger, EventFilter,
+            NanoDB, Deduplicate, DataTable, DataLogger, EventFilter, Mux,
         )
 
         from nano_llm.plugins.speech.riva_asr import RivaASR
@@ -104,7 +104,7 @@ class DynamicPlugin(Plugin):
         from nano_llm.plugins.tools.accuweather import AccuWeather
         from nano_llm.plugins.tools.home_assistant import HomeAssistant
         
-        from nano_llm.plugins.robotics import MimicGen, RobotDataset, ROS2Connector
+        from nano_llm.plugins.robotics import RobotDataset, ROS2Connector, MapQuery #, MimicGen
         
         # LLM
         DynamicPlugin.register(NanoLLM)  
@@ -130,7 +130,7 @@ class DynamicPlugin(Plugin):
         # video
         DynamicPlugin.register(VideoSource)
         DynamicPlugin.register(VideoOutput)
-        DynamicPlugin.register(VideoOverlay)
+        DynamicPlugin.register(TextOverlay)
         DynamicPlugin.register(RateLimit)
         
         # database
@@ -139,12 +139,14 @@ class DynamicPlugin(Plugin):
         #DynamicPlugin.register(DataTable)
         #DynamicPlugin.register(DataLogger)
         DynamicPlugin.register(EventFilter)
+        DynamicPlugin.register(Mux)
         
         # robotics
-        DynamicPlugin.register(MimicGen)
+        #DynamicPlugin.register(MimicGen)
         DynamicPlugin.register(RobotDataset)
         DynamicPlugin.register(ROS2Connector)
-        
+        DynamicPlugin.register(MapQuery)
+
         # tools
         DynamicPlugin.register(Clock)
         DynamicPlugin.register(Location)

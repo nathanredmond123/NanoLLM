@@ -16,4 +16,4 @@ def date():
     """
     Returns the current date.
     """
-    return datetime.now().strftime("%A, %B %-m %Y")
+    return datetime.now().strftime("%A, %B %-d %Y")

@@ -2,7 +2,6 @@
 from nano_llm import bot_function
 from nano_llm.utils import WebRequest
 
-LOCATION=''
 
 @bot_function
 def geolocation():

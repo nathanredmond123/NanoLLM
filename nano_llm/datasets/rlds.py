@@ -215,7 +215,13 @@ class RLDSDataset(TFDSDataset):
             workers = 1
         elif workers < 0:
             workers += mp.cpu_count()
+         
+        if not width:
+            width = 224
             
+        if not height:
+            height = 224
+               
         exporter = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'rlds_export.py') 
         dataset_name = os.path.basename(output)
         
@@ -240,7 +246,12 @@ class RLDSDataset(TFDSDataset):
         for var, value in env.items():
             script += f"sed -i 's|{var}|{value}|g' {dataset_name}.py ; "
             
-        script += f"tfds build --data_dir {output} --num-processes {workers} ; "
+        script += f"tfds build --data_dir {output} "
+        
+        if workers > 1:
+            script += f"--num-processes {workers} "
+        
+        script += "; "
         
         logging.info(f"RLDSDataset | converting {dataset} from {dataset_type} to RLDS/TFDS\n\n{pformat(env, indent=2)}\n\n{script}")
         subprocess.run(script, executable='/bin/bash', shell=True, check=True)

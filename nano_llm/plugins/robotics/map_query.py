@@ -115,7 +115,7 @@ class MapQuery(Plugin):
         Returns:
             str: A list of coordinates representing the path plan from the starting location to the ending location.
         """
-        loc_dict = self.get_location_on_map(instruction)
+        loc_dict = self.get_location_of_something(instruction)
         logging.info(f"Going to {loc_dict['name']} at coordinates {loc_dict['coordinates']} on the map")
         return self.get_path(self.current_location['coordinates'], loc_dict['coordinates'])
 

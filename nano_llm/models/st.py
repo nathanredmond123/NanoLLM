@@ -137,9 +137,9 @@ class STModel(NanoLLM):
         return self.model.encode(image, **generate_kwargs)
     
     def config_vision(self, **kwargs):
-        print('Vision config not needed for STModel CLIP models')
+        print('Vision config not implemented for Sentence Transformer CLIP models')
         return
     
     def init_vision(self, **kwargs):
-        print('Vision init not needed for STModel CLIP models')
+        print('Vision init not implemented for Sentence Transformer CLIP models')
         return

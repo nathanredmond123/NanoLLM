@@ -167,6 +167,7 @@ class NanoLLM(Plugin):
                 'suggestions': [
                     "meta-llama/Meta-Llama-3-8B-Instruct",
                     "NousResearch/Hermes-2-Pro-Llama-3-8B",
+                    "NousResearch/Hermes-3-Llama-3.1-8B",
                     "princeton-nlp/Sheared-LLaMA-2.7B-ShareGPT",
                     "Efficient-Large-Model/VILA1.5-3b",
                     "Efficient-Large-Model/Llama-3-VILA1.5-8B",

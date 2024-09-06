@@ -2,6 +2,9 @@ import logging
 from nano_llm import Plugin
 from semantic_map import annotation_manager
 from semantic_map import index_manager
+from numpy import ndarray
+from typing import Union
+from PIL import Image
 
 SEMANTIC_MAP_ROOT = "/opt/SemanticMap/maps/"
 SYSTEM_PROMPT_FILE = "nous_system.txt"
@@ -64,10 +67,9 @@ class MapQuery(Plugin):
 
     def get_your_current_location(self) -> dict:
         """
-        Get your current location on the map when the user asks for it. Use this tool whenever the user asks 
-        where you are located on the map. Only use this tool when you are specifically asked to provide YOUR
-        current location. If the user asks for the location of something else or instructs you to go to a location,
-        then use one of the other tools provided.
+        Get your current location on the map. Use this tool whenever the user asks where you are located on the map.
+        Only use this tool when you are specifically asked to provide YOUR current location. If the user asks for the
+        location of something else or instructs you to go to a location, then use one of the other tools provided.
 
         Returns:
             dict: A dictionary containing the name of the current location on the map and its coordinates.
@@ -75,8 +77,8 @@ class MapQuery(Plugin):
                 - 'name': The name of the current location on the map.
                 - 'coordinates': The coordinates of the current location on the map.
         """
-        current_name = "paradise"
-        current_coords = "100, 101"
+        current_name = "Paradise"
+        current_coords = "100 101"
         return {'name': current_name, 'coordinates': current_coords}
     
     def get_location_of_something(self, query: str) -> dict:
@@ -95,16 +97,16 @@ class MapQuery(Plugin):
                 - 'name': The name of the location on the map.
                 - 'coordinates': The coordinates of the location on the map.
         """
-        query_embedding = self.ind_mgr.embedding_model.embed_text(query)
-        root_pol_docs, _, _ = self.ind_mgr.polygon_doc_index.find_subindex(query_embedding, subindex = 'strings', search_field='embedding', limit=2)
-        root_reg_docs, _, _ = self.ind_mgr.region_doc_index.find_subindex(query_embedding, subindex = 'strings', search_field='embedding', limit=1)
+        results_dict = self.text_map_query(query)
+        root_reg_docs = results_dict['region docs']['root docs']
         name = root_reg_docs[0].name
         polygon_id = root_reg_docs[0].polygon_ids[0]
         coords = self.ind_mgr.polygon_docs[polygon_id].polygon_centroid
         coordinates = ', '.join([str(round(coord)) for coord in coords])
+        
         return {'name': name, 'coordinates': coordinates}
     
-    def go_to_location_on_map(self, instruction: str) -> dict:
+    def go_to_location_on_map(self, query: str) -> dict:
         """
         Navigate to a location on the map based on the user's query. Use this tool when the user gives you some
         information and asks you to go to some location on the map based on that information. 
@@ -115,7 +117,7 @@ class MapQuery(Plugin):
         Returns:
             str: A list of coordinates representing the path plan from the starting location to the ending location.
         """
-        loc_dict = self.get_location_of_something(instruction)
+        loc_dict = self.get_location_of_something(query)
         logging.info(f"Going to {loc_dict['name']} at coordinates {loc_dict['coordinates']} on the map")
         return self.get_path(self.current_location['coordinates'], loc_dict['coordinates'])
 
@@ -132,8 +134,8 @@ class MapQuery(Plugin):
         Returns:
             str: A list of coordinates representing the path plan from the starting location to the ending location.
         """
-        start_dict = self.get_location_from_map(start)
-        end_dict = self.get_location_from_map(end)
+        start_dict = self.get_location_of_something(start)
+        end_dict = self.get_location_of_something(end)
         path_plan = self.get_path(start_dict['coordinates'], end_dict['coordinates'])
         logging.info(f"Path plan generated from {start_dict['name']} at {start_dict['coordinates']} to {end_dict['name']} and {end_dict['coordinates']}")
         return path_plan
@@ -151,7 +153,7 @@ class MapQuery(Plugin):
         """
         logging.info(f"Moving forward by {distance} units on the map")
 
-        return "100, 101"
+        return "100 101"
 
     def get_path(self, start: str, end: str) -> str:
         """
@@ -164,9 +166,62 @@ class MapQuery(Plugin):
         Returns:
             str: A list of coordinates representing the path plan from the starting location to the ending location.
         """
-        path_plan = "100, 101, 102, 103"
+        path_plan = "100 101 102 103"
         logging.info(f"Getting path from {start} to {end}")
         return path_plan
+
+    def text_map_query(self, query: str, limit: int = 3) -> dict:
+        """
+        NOT A TOOL
+        Query the map index for information based on a user's text query.
+        Args:
+            query: A string representing the user's query.
+        
+        Returns:
+            dict: A dictionary containing the root docs, subindex docs, and scores returned by the search.
+            Keys:
+                - 'region docs': The region documents turned up by the search.
+                - 'polygon docs': The polygon documents turned up by the search.
+        """
+        results_dict = {}
+        query_embedding = self.ind_mgr.embedding_model.embed_text(query)
+
+        root_region_docs, sub_region_docs, region_scores = self.ind_mgr.region_doc_index.find_subindex(query_embedding, subindex = 'strings', search_field='embedding', limit=limit)
+        root_polygon_docs, sub_polygon_docs, polygon_scores = self.ind_mgr.polygon_doc_index.find_subindex(query_embedding, subindex = 'strings', search_field='embedding', limit=limit)
+
+        results_dict['region docs'] = {'root docs': root_region_docs, 'subindex docs': sub_region_docs, 'scores': region_scores}
+        results_dict['polygon docs'] = {'root docs': root_polygon_docs, 'subindex docs': sub_polygon_docs, 'scores': polygon_scores}
+
+        return results_dict
+
+    def image_map_query(self, image: Union[str, ndarray], limit: int = 3):
+
+        """
+        NOT A TOOL
+        Query the map index for information based on an image.
+        Args:
+            image: A string representing the image URL or a numpy array representing the image.
+        
+        Returns:
+            dict: A dictionary containing the root docs, subindex docs, and scores returned by the search.
+            Keys:
+                - 'region docs': The region documents turned up by the search.
+                - 'polygon docs': The polygon documents turned up by the search.
+        """
+        results_dict = {}
+
+        if isinstance(image, str):
+            image = Image.open(image)
+        elif isinstance(image, ndarray):
+            image = Image.fromarray(image)
+
+        image_embedding = self.ind_mgr.embedding_model.embed_image(image)
+
+        # Remember only polygons have images associated with them
+        root_polygon_docs, sub_polygon_docs, polygon_scores = self.ind_mgr.polygon_doc_index.find_subindex(image_embedding, subindex = 'images', search_field='embedding', limit=limit)
+        results_dict['polygon docs'] = {'root docs': root_polygon_docs, 'subindex docs': sub_polygon_docs, 'scores': polygon_scores}
+
+        return results_dict
 
     @classmethod
     def type_hints(cls):

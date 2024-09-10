@@ -7,7 +7,6 @@ from typing import Union
 from PIL import Image
 
 SEMANTIC_MAP_ROOT = "/opt/SemanticMap/maps/"
-SYSTEM_PROMPT_FILE = "nous_system.txt"
 
 class MapQuery(Plugin):
     """
@@ -16,7 +15,7 @@ class MapQuery(Plugin):
     def __init__(self, 
                  json_raw_path = f"{SEMANTIC_MAP_ROOT}annotations/instances_default.json",
                  json_processed_path = f"{SEMANTIC_MAP_ROOT}annotations/processed.json",
-                 map_file_path = f"{SEMANTIC_MAP_ROOT}images/map.pgm",
+                 map_file_path = f"{SEMANTIC_MAP_ROOT}images/map.png",
                  coco_schema_path = f"{SEMANTIC_MAP_ROOT}annotations/coco_schema.txt",
                  map_schema_path = f"{SEMANTIC_MAP_ROOT}annotations/semantic_map_schema.txt",
                  index_file_dir = f"{SEMANTIC_MAP_ROOT}annotations", **kwargs):

@@ -28,7 +28,8 @@ class MotionQuery(Plugin):
             A json dict (format and contents unknown at this time)
         """
         robot_namespace = self.robot_namespace
-        
+        ## TESTING
+
 
         
 

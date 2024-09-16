@@ -93,10 +93,10 @@ class ROS2Connector(Plugin, Node):
             init_args (list): list of arguments to pass to the ROS2 node
 
         """
-        Plugin.__init__(inputs=['json_in'], outputs=['json_out'],**kwargs)
+        Plugin.__init__(self, inputs=['json_in'], outputs=['json_out'],**kwargs)
 
         # Initialize rclpy
-        rclpy.init(kwargs.get('init_args', []))
+        rclpy.init(args=kwargs.get('init_args', []))
         # Initialize node
         self.node = rclpy.create_node('ros2_connector')
         # Create the MultiThreadedExecutor
@@ -245,9 +245,6 @@ class ROS2Connector(Plugin, Node):
         self.callback_groups[msg.name] = MutuallyExclusiveCallbackGroup()
         _, msg_class = self.get_ros_message_type(msg)
         self.action_clients[msg.name] = ActionClient(self.node, msg_class, msg.name)
-        except Exception as e:
-            self.publish_log(self.loggers[msg.ros_log.name], f"Failed to send service request: {e}", log_level=LogLevel.ERROR)
-
         while not self.action_clients[msg.name].wait_for_server(timeout_sec=1.0):
             self.publish_log(self.loggers[msg.ros_log.name], f"action server {msg.name} not available, waiting again...", log_level=LogLevel.INFO)
         return True
@@ -503,14 +500,11 @@ class ROS2Connector(Plugin, Node):
         Stop a plugin thread's running, and unregister it from the global instances.
         """ 
         ### Shut down and Destroy the node #####
-        self.executor.shutdown()
+        self.exec.shutdown()
         self.node.destroy_node('ros2_connector')
         rclpy.shutdown()
         ########################################
-        except Exception as e:
-            self.publish_log(self.loggers[msg.ros_log.name], f"Failed to send service request: {e}", log_level=LogLevel.ERROR)
 
-        
         self.stop()
                 
         try:

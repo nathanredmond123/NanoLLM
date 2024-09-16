@@ -244,10 +244,10 @@ class ROS2Connector(Plugin, Node):
         self.create_logger(msg)
         self.callback_groups[msg.name] = MutuallyExclusiveCallbackGroup()
         _, msg_class = self.get_ros_message_type(msg)
-        self.action_clients[msg.name] = ActionClient(self.node, msg_class, msg.nam
+        self.action_clients[msg.name] = ActionClient(self.node, msg_class, msg.name)
         except Exception as e:
             self.publish_log(self.loggers[msg.ros_log.name], f"Failed to send service request: {e}", log_level=LogLevel.ERROR)
-e)
+
         while not self.action_clients[msg.name].wait_for_server(timeout_sec=1.0):
             self.publish_log(self.loggers[msg.ros_log.name], f"action server {msg.name} not available, waiting again...", log_level=LogLevel.INFO)
         return True

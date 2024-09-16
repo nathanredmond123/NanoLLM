@@ -62,7 +62,7 @@ class MapQuery(Plugin):
         self.add_tool(self.get_your_current_location)
         self.add_tool(self.go_to_location_on_map)
         self.add_tool(self.generate_path_plan)
-        self.add_tool(self.move_forward)
+        # self.add_tool(self.move_forward)
 
     def get_your_current_location(self) -> dict:
         """

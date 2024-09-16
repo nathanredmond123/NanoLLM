@@ -143,6 +143,8 @@ class ROS2Connector(Plugin, Node):
             print(f"Invalid ROS2 message: {e}")
             self.get_logger().error(f"Invalid ROS2 message sent by agent: {e}")
             return False
+
+        print(ros_msg)
         return ros_msg
 
     def get_ros_message_type(self, ros_msg: ROSMessage) -> tuple:
@@ -155,7 +157,8 @@ class ROS2Connector(Plugin, Node):
         msg_module = importlib.import_module(f'{package}.{msg_dir}')
         msg_class = getattr(msg_module, msg_type)
         globals()[msg_type] = msg_class
-        return msg_type, msg_class
+        node_type = ros_msg.node_type
+        return msg_type, msg_class, node_type
 
            
     def create_publisher(self, msg: ROSMessage, msg_class) -> bool:
@@ -398,20 +401,22 @@ class ROS2Connector(Plugin, Node):
         """
         json_msg = input
         msg = self.get_ros_msg_from_json(json_msg)
-        msg_type, msg_class = self.get_ros_message_type(msg)
+        msg_type, msg_class, node_type = self.get_ros_message_type(msg)
         # Convert JSON message payload to ROS2 message for any publishing
         ros_msg = self.json_to_ros_msg(msg, msg_class)
-
-        match msg_type:
+        print(f"this is the value of node_type: {node_type}")
+        print(f"this is the value of msg: {msg}")
+        
+        match node_type:
 
             case NodeType.PUBLISHER:
                 # Don't bother creating a publisher if it's already been created and don't create a new one for a 'destroy' message
-                if not self.pubs.get(msg.name) and not msg.msg.lower() == 'destroy':
+                if not self.pubs.get(msg.name) and (not isinstance(msg.msg, str) or msg.msg.lower() != 'destroy'):
                     self.create_publisher(msg, msg_class)
                     if msg.timer_period == 0:
                         self.publish_ros_message(msg)
                         self.publish_log(self.loggers[msg.ros_log.name], f"Published message to topic: {msg.name}", log_level=LogLevel.INFO)
-                elif self.pubs.get(msg.name) and not msg.msg.lower() == 'destroy':
+                elif self.pubs.get(msg.name) and (not isinstance(msg.msg, str) or msg.msg.lower() == 'destroy'):
                     if msg.timer_period == 0:
                         if self.timers_dict.get(msg.name):
                             self.timers_dict[msg.name].destroy()
@@ -425,7 +430,7 @@ class ROS2Connector(Plugin, Node):
                         self.timers_dict[msg.name] = self.node.create_timer(msg.timer_period, 
                                                                        partial(self.timer_callback, msg=ros_msg, 
                                                                        callback_group=self.callback_groups[msg.name]))
-                elif msg.msg.lower() == 'destroy':
+                elif not isinstance(msg.msg, str) or msg.msg.lower() == 'destroy':
                     if self.timers_dict.get(msg.name):
                         self.timers_dict[msg.name].destroy()
                         del self.timers_dict[msg.name]

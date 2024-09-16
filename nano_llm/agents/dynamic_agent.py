@@ -14,6 +14,7 @@ import nano_llm
 from nano_llm import Agent, Plugin
 from nano_llm.web import WebServer
 from nano_llm.plugins import DynamicPlugin, TerminalPlugin, Tegrastats
+from semantic_map import utils
 
 
 class DynamicAgent(Agent):
@@ -27,6 +28,7 @@ class DynamicAgent(Agent):
         DynamicPlugin.register_all()
 
         self.plugins = []
+        self.tool_list = []
         self.preset_dir = preset_dir
         
         os.makedirs(preset_dir, exist_ok=True)
@@ -85,6 +87,12 @@ class DynamicAgent(Agent):
             plugin.start()
             
         self.webserver.send_message({'plugin_added': [plugin.state_dict(config=True)]})
+        
+        local_tools = utils.get_tool_list(plugin)
+        if len(local_tools) > 0:
+            for tool in local_tools:
+                self.tool_list.append(tool)
+            utils.include_tool_docs('/data/prompts/nous_system.txt', self.tool_list)
 
         load_time = time.perf_counter() - load_begin
         
@@ -92,6 +100,8 @@ class DynamicAgent(Agent):
             args_str = pprint.pformat(init_kwargs, indent=2, width=80).replace('\n', '<br/>')
             self.webserver.send_alert(f"Loaded {plugin.name} in {load_time:.1f} seconds<br/>&nbsp;&nbsp;{args_str}", level='success')
         
+
+
         return plugin
         
     def config_plugin(self, name='', **kwargs):

@@ -1,9 +1,9 @@
 import logging
 from nano_llm import Plugin
-from ros_connector import NodeType
+# from ros_connector import NodeType
 
 class MotionQuery(Plugin):
-    def __init__(self):
+    def __init__(self, **kwargs):
         
         super().__init__(outputs=['json_in'], threaded=False, **kwargs)
         logging.info("Motion Query plugin initialized")

@@ -9,12 +9,14 @@ from action_msgs.msg import GoalStatus
 import rclpy.logging
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
+from rclpy.impl.rcutils_logger import RcutilsLogger
 from rosidl_runtime_py import set_message, convert
 import importlib
 from queue import Queue
 from enum import Enum
 from typing import Optional, Annotated
 from pydantic import BaseModel, Field, ValidationError
+import threading
 
 ########################################################
 ##### Pydantic schemas for ROS2 message validation #####
@@ -98,20 +100,28 @@ class ROS2Connector(Plugin, Node):
         # Initialize node
         self.node = rclpy.create_node('ros2_connector')
         # Create the MultiThreadedExecutor
-        executor = MultiThreadedExecutor()
+        self.exec = MultiThreadedExecutor()
         # Add the node to the executor
-        executor.add_node(self.node)
+        self.exec.add_node(self.node)
+        self._executor_thread = None
+    
+        # ^ Where are we spinning this node? It appears that it will still be a blocking node unless we
+        # explicitly run the executor in a different thread in parallel with main script. 
+        # Understand that all of the functions defined below are considered callbacks, and adding this node
+        # to a multi-threaded executor allows these callbacks to execute in parallel (in separate threads)
+
+
         self.node.get_logger().info("ROS2Connector plugin started")
         self.node.get_logger().info("ROS2 node created")
 
         # Initialize subnode dictionaries
-        self.publishers = {}
-        self.subscribers = {}
+        self.pubs = {}
+        self.subs = {}
         self.service_clients = {}
         self.action_clients = {}
         # Initialize logger, timer, callback group, and goal handle dictionaries
         self.loggers = {}
-        self.timers = {}
+        self.timers_dict = {}
         self.callback_groups = {}
         self.goal_handles = {}
 
@@ -158,13 +168,13 @@ class ROS2Connector(Plugin, Node):
         _, msg_class = self.get_ros_message_type(msg)
         pub_msg = self.json_to_ros_msg(msg, msg_class)
         try:
-            if not self.publishers.get(msg.name):
-                self.publishers[msg.name] = self.node.create_publisher(msg_class, 
+            if not self.pubs.get(msg.name):
+                self.pubs[msg.name] = self.node.create_publisher(msg_class, 
                                                                        msg.name, 
                                                                        10, 
                                                                        callback_group=self.callback_groups[msg.name])
                 if msg.timer_period != 0:
-                    self.timers[msg.name] = self.node.create_timer(msg.timer_period, 
+                    self.timers_dict[msg.name] = self.node.create_timer(msg.timer_period, 
                                                                    partial(self.timer_callback, msg=pub_msg, 
                                                                    callback_group=self.callback_groups[msg.name]))
             return True
@@ -189,7 +199,7 @@ class ROS2Connector(Plugin, Node):
         self.callback_groups[msg.name] = MutuallyExclusiveCallbackGroup()
         _, msg_class = self.get_ros_message_type(msg)
         try:
-            self.subscribers[msg.name] = self.node.create_subscription(msg_class, 
+            self.subs[msg.name] = self.node.create_subscription(msg_class, 
                                                                     msg.name, 
                                                                     partial(self.subscriber_callback, ros_msg=msg), 
                                                                     10,
@@ -234,7 +244,10 @@ class ROS2Connector(Plugin, Node):
         self.create_logger(msg)
         self.callback_groups[msg.name] = MutuallyExclusiveCallbackGroup()
         _, msg_class = self.get_ros_message_type(msg)
-        self.action_clients[msg.name] = ActionClient(self.node, msg_class, msg.name)
+        self.action_clients[msg.name] = ActionClient(self.node, msg_class, msg.nam
+        except Exception as e:
+            self.publish_log(self.loggers[msg.ros_log.name], f"Failed to send service request: {e}", log_level=LogLevel.ERROR)
+e)
         while not self.action_clients[msg.name].wait_for_server(timeout_sec=1.0):
             self.publish_log(self.loggers[msg.ros_log.name], f"action server {msg.name} not available, waiting again...", log_level=LogLevel.INFO)
         return True
@@ -256,21 +269,21 @@ class ROS2Connector(Plugin, Node):
             return False
         return True
 
-    def publish_log(self, logger: rclpy.logging.Logger, msg: str, log_level: str=None) -> bool:
+    def publish_log(self, logger: RcutilsLogger, msg: str, log_level: LogLevel=LogLevel.INFO) -> bool:
         """
         Publish a ROS2 log message.
         """
         try:
-            match log_level.upper():
-                case "DEBUG":
+            match log_level:
+                case LogLevel.DEBUG:
                     logger.debug(msg)
-                case "INFO":
+                case LogLevel.INFO:
                     logger.info(msg)
-                case "WARN":
+                case LogLevel.WARN:
                     logger.warn(msg)
-                case "ERROR":
+                case LogLevel.ERROR:
                     logger.error(msg)
-                case "FATAL":
+                case LogLevel.FATAL:
                     logger.fatal(msg)
                 case _:
                     logger.info(msg)
@@ -288,7 +301,7 @@ class ROS2Connector(Plugin, Node):
         _, msg_class = self.get_ros_message_type(msg)
         ros_msg = self.json_to_ros_msg(msg, msg_class)
         try:
-            publisher = self.publishers.get(msg.name)
+            publisher = self.pubs.get(msg.name)
             publisher.publish(ros_msg)
             self.publish_log(self.loggers[msg.ros_log.name], f"Published message to topic: {msg.name}", log_level=LogLevel.INFO)
             return True
@@ -396,41 +409,41 @@ class ROS2Connector(Plugin, Node):
 
             case NodeType.PUBLISHER:
                 # Don't bother creating a publisher if it's already been created and don't create a new one for a 'destroy' message
-                if not self.publishers.get(msg.name) and not msg.msg.lower() == 'destroy':
+                if not self.pubs.get(msg.name) and not msg.msg.lower() == 'destroy':
                     self.create_publisher(msg, msg_class)
                     if msg.timer_period == 0:
                         self.publish_ros_message(msg)
                         self.publish_log(self.loggers[msg.ros_log.name], f"Published message to topic: {msg.name}", log_level=LogLevel.INFO)
-                elif self.publishers.get(msg.name) and not msg.msg.lower() == 'destroy':
+                elif self.pubs.get(msg.name) and not msg.msg.lower() == 'destroy':
                     if msg.timer_period == 0:
-                        if self.timers.get(msg.name):
-                            self.timers[msg.name].destroy()
-                            del self.timers[msg.name]
+                        if self.timers_dict.get(msg.name):
+                            self.timers_dict[msg.name].destroy()
+                            del self.timers_dict[msg.name]
                         self.publish_ros_message(msg)
                         self.publish_log(self.loggers[msg.ros_log.name], f"Published message to topic: {msg.name}", log_level=LogLevel.INFO)
                     else:
-                        if self.timers.get(msg.name):
-                            self.timers[msg.name].destroy()
-                            del self.timers[msg.name]
-                        self.timers[msg.name] = self.node.create_timer(msg.timer_period, 
+                        if self.timers_dict.get(msg.name):
+                            self.timers_dict[msg.name].destroy()
+                            del self.timers_dict[msg.name]
+                        self.timers_dict[msg.name] = self.node.create_timer(msg.timer_period, 
                                                                        partial(self.timer_callback, msg=ros_msg, 
                                                                        callback_group=self.callback_groups[msg.name]))
                 elif msg.msg.lower() == 'destroy':
-                    if self.timers.get(msg.name):
-                        self.timers[msg.name].destroy()
-                        del self.timers[msg.name]
-                    self.publishers[msg.name].destroy()
-                    del self.publishers[msg.name]
+                    if self.timers_dict.get(msg.name):
+                        self.timers_dict[msg.name].destroy()
+                        del self.timers_dict[msg.name]
+                    self.pubs[msg.name].destroy()
+                    del self.pubs[msg.name]
                     del self.callback_groups[msg.name]
                     del self.loggers[msg.ros_log.name]
                     self.publish_log(self.loggers[msg.ros_log.name], f"Publisher destroyed: {msg.name}", log_level=LogLevel.INFO)
 
             case NodeType.SUBSCRIBER:
-                if not self.subscribers.get(msg.name):
+                if not self.subs.get(msg.name):
                     self.create_subscriber(msg, msg_class)
                 if msg.msg.lower() == 'destroy':
-                    self.subscribers[msg.name].destroy()
-                    del self.subscribers[msg.name]
+                    self.subs[msg.name].destroy()
+                    del self.subs[msg.name]
                     del self.callback_groups[msg.name]
                     del self.loggers[msg.ros_log.name]
                     self.publish_log(self.loggers[msg.ros_log.name], f"Subscriber destroyed: {msg.name}", log_level=LogLevel.INFO)
@@ -471,7 +484,9 @@ class ROS2Connector(Plugin, Node):
         Processes the queue forever and automatically run when created with ``threaded=True``
         """
         ### Spin the node############
-        self.executor.spin(self.node)
+        # self.executor.spin(self.node)
+        self._executor_thread = threading.Thread(target=self.exec.spin)
+        self._executor_thread.start()
         #############################
 
         while not self.stop_flag:
@@ -492,6 +507,9 @@ class ROS2Connector(Plugin, Node):
         self.node.destroy_node('ros2_connector')
         rclpy.shutdown()
         ########################################
+        except Exception as e:
+            self.publish_log(self.loggers[msg.ros_log.name], f"Failed to send service request: {e}", log_level=LogLevel.ERROR)
+
         
         self.stop()
                 

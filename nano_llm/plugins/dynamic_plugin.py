@@ -104,7 +104,7 @@ class DynamicPlugin(Plugin):
         from nano_llm.plugins.tools.accuweather import AccuWeather
         from nano_llm.plugins.tools.home_assistant import HomeAssistant
         
-        from nano_llm.plugins.robotics import RobotDataset, ROS2Connector, MapQuery #, MimicGen
+        from nano_llm.plugins.robotics import RobotDataset, ROS2Connector, MapQuery, MotionQuery #, MimicGen
         
         # LLM
         DynamicPlugin.register(NanoLLM)  
@@ -146,6 +146,7 @@ class DynamicPlugin(Plugin):
         DynamicPlugin.register(RobotDataset)
         DynamicPlugin.register(ROS2Connector)
         DynamicPlugin.register(MapQuery)
+        DynamicPlugin.register(MotionQuery)
 
         # tools
         DynamicPlugin.register(Clock)

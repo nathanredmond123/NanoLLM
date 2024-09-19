@@ -1,7 +1,7 @@
 import logging
 import json
 from nano_llm import Plugin
-from nano_llm.plugins.robotics.ros_connector import NodeType
+from nano_llm.plugins.robotics.ros_connector import NodeType, ROSLog, LogLevel
 
 class MotionQuery(Plugin):
     def __init__(self, **kwargs):
@@ -12,6 +12,7 @@ class MotionQuery(Plugin):
         self.add_parameter('robot_namespace', type=str, default="")
 
         self.add_tool(self.move_finite)
+        self.add_tool(self.topic_subscriber)
 
     def move_finite(self, distance: float, speed: float, direction: int):
         """
@@ -46,14 +47,43 @@ class MotionQuery(Plugin):
             "msg_type": 'geometry_msgs/msg/Twist',
             "name": f"{robot_namespace}/cmd_vel",
             "timer_period": 0.05,
-            "msg": twist_msg
+            "timer_duration": abs(distance / speed),
+            "msg": twist_msg,
+            # "ros_log": ROSLog(name="cmd_vel_log", level=LogLevel('INFO'), msg="created publisher for cmd_vel")
         }
-        print("do we get here")
 
         self.output(json.dumps(json_dict))
 
         return "Moved a finite distance"
+
+
+    def topic_subscriber(self, topic_name: str, message_type: str):
+        """
+        Use this tool whenever you are asked to subscribe to a topic. The user should also tell you what message type they would
+        like to subscribe to on said topic. If they do not, do not call this tool and instead prompt the user to input the message type
+        and to confirm the topic they wish to subscribe to.
+
+        Args:
+            topic_name: the topic that the user wishes to subscribe to
+            message_type: the message type that the user wishes to subscribe to over topic_name. 
+
+        Returns:
+            A basic string that is not related to the information being funneled across the topic.
+        """
+
+        robot_namespace = self.robot_namespace
+
+        json_dict = {
+            "node_type": NodeType('subscriber'),
+            "msg_type": 'geometry_msgs/msg/Twist',
+            "name": f"{robot_namespace}/{topic_name}",
+            "timer_period": 0.05,
+            "msg": {}
+        }
         
+        self.output(json.dumps(json_dict))
+
+        return "test"
 
 
         

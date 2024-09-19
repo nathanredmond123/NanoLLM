@@ -14,9 +14,10 @@ from rosidl_runtime_py import set_message, convert
 import importlib
 from queue import Queue
 from enum import Enum
-from typing import Optional, Annotated
+from typing import Optional, Annotated, Any
 from pydantic import BaseModel, Field, ValidationError
 import threading
+import time
 
 ########################################################
 ##### Pydantic schemas for ROS2 message validation #####
@@ -58,6 +59,7 @@ class ROSMessage(BaseModel):
     msg_type: str = Field(description = "the type of ROS2 message, service, or action, e.g. 'std_msgs/msg/String'")
     name: str = Field(description = "the name of the ROS2 topic, service, or client, e.g. 'chatter'")
     timer_period: Annotated[float, Field(description = "the period of the timer, ignored if type is not 'publisher'", default=0, ge=0.0)]
+    timer_duration: Annotated[float, Field(description = "the duration of time that a message will be published, ignored if type is not 'publisher'", default=0, ge=0.0)]
     msg: dict = Field(description = "the message payload for the topic, service request/response, or action goal/result")
     ros_log: Optional[ROSLog] = Field(description = "optional ros logging message to be emitted when logger is created", default='')
 
@@ -166,9 +168,9 @@ class ROS2Connector(Plugin, Node):
         Create a ROS2 publisher.
         """
         assert(msg.node_type == NodeType.PUBLISHER)
-        self.create_logger(msg)
-        self.callback_group[msg.name] = MutuallyExclusiveCallbackGroup()
-        _, msg_class = self.get_ros_message_type(msg)
+        # self.create_logger(msg)
+        self.callback_groups[msg.name] = MutuallyExclusiveCallbackGroup()
+        _, msg_class, _ = self.get_ros_message_type(msg)
         pub_msg = self.json_to_ros_msg(msg, msg_class)
         try:
             if not self.pubs.get(msg.name):
@@ -178,38 +180,40 @@ class ROS2Connector(Plugin, Node):
                                                                        callback_group=self.callback_groups[msg.name])
                 if msg.timer_period != 0:
                     self.timers_dict[msg.name] = self.node.create_timer(msg.timer_period, 
-                                                                   partial(self.timer_callback, msg=pub_msg, 
-                                                                   callback_group=self.callback_groups[msg.name]))
+                                                                   partial(self.timer_callback, ros_msg=pub_msg, msg=msg, start_time=time.time()))
+                                                                #    callback_group=self.callback_groups[msg.name]))
             return True
         except Exception as e:
             self.publish_log(self.loggers[msg.ros_log.name], f"Failed to create publisher: {e}", log_level=LogLevel.ERROR)
             return False
         
-    def timer_callback(self, msg: ROSMessage) -> None:
+    def timer_callback(self, ros_msg: Any, msg: ROSMessage, start_time: float) -> None:
         """
         Timer callback function for ROS2 publishers.
         """
         assert(msg.node_type == NodeType.PUBLISHER)
-        self.publish_ros_message(msg)
-        self.publish_log(self.loggers[msg.ros_log.name], f"Published message to topic: {msg.name}", log_level=LogLevel.INFO)
+        elapsed_time = time.time() - start_time
+        if elapsed_time < msg.timer_duration:
+            print("do we get here")
+            self.publish_ros_message(ros_msg, msg)
+        # self.publish_log(self.loggers[msg.ros_log.name], f"Published message to topic: {msg.name}", log_level=LogLevel.INFO)
     
     def create_subscriber(self, msg: ROSMessage) -> bool:
         """
         Create a ROS2 subscriber.
         """
         assert(msg.node_type == NodeType.SUBSCRIBER)
-        self.create_logger(msg)
+        # self.create_logger(msg)
         self.callback_groups[msg.name] = MutuallyExclusiveCallbackGroup()
-        _, msg_class = self.get_ros_message_type(msg)
+        _, msg_class, _ = self.get_ros_message_type(msg)
         try:
             self.subs[msg.name] = self.node.create_subscription(msg_class, 
                                                                     msg.name, 
                                                                     partial(self.subscriber_callback, ros_msg=msg), 
-                                                                    10,
-                                                                    callback_group=self.callback_groups[msg.name])
+                                                                    10)
             return True
         except Exception as e:
-            self.publish_log(self.loggers[msg.ros_log.name], f"Failed to create subscriber: {e}", log_level=LogLevel.ERROR)
+            # self.publish_log(self.loggers[msg.ros_log.name], f"Failed to create subscriber: {e}", log_level=LogLevel.ERROR)
             return False
 
     def subscriber_callback(self, msg, ros_msg: ROSMessage) -> None:
@@ -217,7 +221,7 @@ class ROS2Connector(Plugin, Node):
         Callback function for ROS2 subscribers. Replace payload of original message with message
         received by subscriber and JSON dump to output.
         """
-        self.publish_log(self.loggers[ros_msg.ros_log.name], f"Received message from topic: {ros_msg.name}", log_level=LogLevel.INFO)
+        # self.publish_log(self.loggers[ros_msg.ros_log.name], f"Received message from topic: {ros_msg.name}", log_level=LogLevel.INFO)
         json_msg = self.ros_msg_to_json(msg)
         # replace payload of original message with received message
         ros_msg.msg = json_msg
@@ -256,6 +260,8 @@ class ROS2Connector(Plugin, Node):
         """
         Create a ROS2 logger.
         """
+        print(f"msg.ros_log value: {msg.ros_log}")        
+
         if not msg.ros_log.name:
             msg.ros_log.name = f"{msg.name}_log"
         try:
@@ -293,20 +299,20 @@ class ROS2Connector(Plugin, Node):
             return False
         return True
 
-    def publish_ros_message(self, msg: ROSMessage) -> bool:
+    def publish_ros_message(self, ros_msg: Any, msg: ROSMessage) -> bool:
         """
         Publish a ROS2 message to a topic.
         """
         assert(msg.node_type == NodeType.PUBLISHER)
-        _, msg_class = self.get_ros_message_type(msg)
-        ros_msg = self.json_to_ros_msg(msg, msg_class)
+        # _, msg_class = self.get_ros_message_type(msg)
+        # ros_msg = self.json_to_ros_msg(msg, msg_class)
         try:
             publisher = self.pubs.get(msg.name)
             publisher.publish(ros_msg)
-            self.publish_log(self.loggers[msg.ros_log.name], f"Published message to topic: {msg.name}", log_level=LogLevel.INFO)
+            # self.publish_log(self.loggers[msg.ros_log.name], f"Published message to topic: {msg.name}", log_level=LogLevel.INFO)
             return True
         except Exception as e:
-            self.publish_log(self.loggers[msg.ros_log.name], f"Failed to publish message: {e}", log_level=LogLevel.ERROR)
+            # self.publish_log(self.loggers[msg.ros_log.name], f"Failed to publish message: {e}", log_level=LogLevel.ERROR)
             return False
         
     def send_service_request_async(self, msg: ROSMessage) -> bool:
@@ -404,9 +410,7 @@ class ROS2Connector(Plugin, Node):
         msg_type, msg_class, node_type = self.get_ros_message_type(msg)
         # Convert JSON message payload to ROS2 message for any publishing
         ros_msg = self.json_to_ros_msg(msg, msg_class)
-        print(f"this is the value of node_type: {node_type}")
-        print(f"this is the value of msg: {msg}")
-        
+
         match node_type:
 
             case NodeType.PUBLISHER:
@@ -415,21 +419,21 @@ class ROS2Connector(Plugin, Node):
                     self.create_publisher(msg, msg_class)
                     if msg.timer_period == 0:
                         self.publish_ros_message(msg)
-                        self.publish_log(self.loggers[msg.ros_log.name], f"Published message to topic: {msg.name}", log_level=LogLevel.INFO)
+                        # self.publish_log(self.loggers[msg.ros_log.name], f"Published message to topic: {msg.name}", log_level=LogLevel.INFO)
                 elif self.pubs.get(msg.name) and (not isinstance(msg.msg, str) or msg.msg.lower() == 'destroy'):
                     if msg.timer_period == 0:
                         if self.timers_dict.get(msg.name):
                             self.timers_dict[msg.name].destroy()
                             del self.timers_dict[msg.name]
                         self.publish_ros_message(msg)
-                        self.publish_log(self.loggers[msg.ros_log.name], f"Published message to topic: {msg.name}", log_level=LogLevel.INFO)
+                        # self.publish_log(self.loggers[msg.ros_log.name], f"Published message to topic: {msg.name}", log_level=LogLevel.INFO)
                     else:
                         if self.timers_dict.get(msg.name):
                             self.timers_dict[msg.name].destroy()
                             del self.timers_dict[msg.name]
                         self.timers_dict[msg.name] = self.node.create_timer(msg.timer_period, 
-                                                                       partial(self.timer_callback, msg=ros_msg, 
-                                                                       callback_group=self.callback_groups[msg.name]))
+                                                                       partial(self.timer_callback, ros_msg=ros_msg, 
+                                                                       msg=msg, start_time=time.time()))
                 elif not isinstance(msg.msg, str) or msg.msg.lower() == 'destroy':
                     if self.timers_dict.get(msg.name):
                         self.timers_dict[msg.name].destroy()
@@ -442,13 +446,13 @@ class ROS2Connector(Plugin, Node):
 
             case NodeType.SUBSCRIBER:
                 if not self.subs.get(msg.name):
-                    self.create_subscriber(msg, msg_class)
-                if msg.msg.lower() == 'destroy':
+                    self.create_subscriber(msg)
+                if isinstance(msg.msg, str) and msg.msg.lower() == 'destroy':
                     self.subs[msg.name].destroy()
                     del self.subs[msg.name]
                     del self.callback_groups[msg.name]
                     del self.loggers[msg.ros_log.name]
-                    self.publish_log(self.loggers[msg.ros_log.name], f"Subscriber destroyed: {msg.name}", log_level=LogLevel.INFO)
+                    # self.publish_log(self.loggers[msg.ros_log.name], f"Subscriber destroyed: {msg.name}", log_level=LogLevel.INFO)
             
             case NodeType.SERVICE_CLIENT:
                 if not self.service_clients.get(msg.name):
@@ -533,7 +537,7 @@ class ROS2Connector(Plugin, Node):
         """
         Convert ROS2 message to JSON message.
         """
-        return convert.message_to_ordered_dict(ros_msg)
+        return convert.message_to_ordereddict(ros_msg)
 
     def state_dict(self, **kwargs):
         return {**super().state_dict(**kwargs)}
